@@ -1,0 +1,24 @@
+---
+title: "Peaking behind the linear model (`lm()`) function in `R`"
+author: "Edward Lavender"
+date: "`r format(Sys.Date(), '%d-%b-%Y')`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+## Simulate an example dataset
+
+## Fitting a model using `lm()`
+
+## The sum of squares
+
+## Maximum likelihood
+
+## Optimisation
+
+## Conclusions 
