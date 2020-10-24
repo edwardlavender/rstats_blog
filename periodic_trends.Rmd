@@ -1,0 +1,1164 @@
+---
+title: "**An introduction to signal processing techniques for the estimation of periodic trends in ecological timeseries**"
+author: "Edward Lavender^[Centre for Research into Ecological and Environmental Modelling, The Observatory, University of St Andrews, St Andrews, Scotland, KY16 9LZ and Scottish Oceans Institute, East Sands, University of St Andrews, St Andrews, Scotland, KY16 8LB, el72@st-andrews.ac.uk]"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+header-includes:
+  - \setlength{\parindent}{0em}
+  - \setlength{\parskip}{1.2em}
+bibliography: periodicity_lib.bib
+csl: ecology.csl
+output: 
+  bookdown::html_document2:
+    toc_depth: 6
+---
+
+```{r setup, include=FALSE}
+# Global options 
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE, 
+                      fig.width = 10, 
+                      fig.height = 5, 
+                      fig.align = "center")
+# Suppress table of contents: 
+# output: 
+#  bookdown::pdf_document2:
+#     toc: false
+```
+
+# Abstract 
+
+Many ecological timeseries contain periodic trends. Signal processing techniques are a suite of approaches designed to reveal these trends by decomposing timeseries into waves with particular frequencies. However, their diversity, terminology and unfamiliarity can cloud the similarities and differences of different approaches and make the strengths and weaknesses of related approaches in different ecological circumstances challenging to assess. At the same time, among the relatively few examples of their application in the ecological literature, many are implemented using the MATLAB® programming language rather than open-source alternatives that have been growing in popularity among ecologists, such as `R`. To address these challenges, this review seeks to provide a holistic introduction to signal processing techniques that clarifies their terminology, the relationships among approaches and their potential applicability in different settings, and illustrates their application in the open-source programming language `R`. This review should facilitate ecologists unfamiliar with signal processing techniques to assess their utility in applied settings and guide their implementation and interpretation. 
+
+# Introduction 
+
+Ecological timeseries comprise sequences of observations sampled through time. These data encompass an immense variety of forms, from palaeoecological samples of lake sediments [@Simpson_2018] and Cenozoic marine plankton communities [@Pandolfi_et_al_2020] to the high-resolution animal movement and oceanographic timeseries collected by electronic bio-logging tags [@Hussey_et_al_2015; @Kays_et_al_2015; @Harcourt_et_al_2019]. Yet, despite this variety, many ecological timeseries share common structural features, including consistent changes in their statistical properties through time (i.e., **trends**) and regularly repeating periodic patterns (i.e., **periodicities**). Alongside these structural features, many timeseries appear to have an element of **stochasticity** which remains as as a result of an incomplete representation of the data-generating processes underlying the observations in a particular ecological context. 
+
+Periodic trends are often of particular interest. This is perhaps most apparent for acoustic signals [@Wisniewska_et_al_2016], but animal movements also often oscillate predictably in relation to periodic environmental cycles. For example, in marine environments, organism depth may oscillate in relation to tidal, diel, lunar and seasonal cycles [@Naylor_1999; @Palmer_2000; @Gibson_2003; @Brierley_2014], a behavioural pattern known as depth-specific period behaviour [@Scott_et_al_2016].
+
+For the analysis of periodic patterns, it is instructive to consider ecological timeseries as complex waveforms, with peaks and troughs, that spread through time. This perspective of a timeseries is called the **time-domain** [@Subbey_et_al_2008]. In timeseries with periodic components, it is natural to extend the time-domain perspective to consider ecological timeseries as being composed of multiple waves, with different intensities (termed **amplitudes**) and rates (termed **frequencies**), whose combined effects produce the complex waveforms that we observe.
+
+A collection of non-parametric and parametric approaches have developed to decompose timeseries into constituent frequencies and their amplitudes. Collectively, these approaches are referred to as **signal processing techniques** or **spectral analysis** and this perspective of a timeseries is known as the **frequency-domain** [@Subbey_et_al_2008]. A useful analogy is to imagine signal processing techniques as prisms through which timeseries can be passed and split into their constituent frequencies, in the same way that white light is split into waves that differ in colour. Terms used in the ecological literature to describe these tools include **signal processing**, **spectral analysis**, **harmonic regression**, **Fourier transform**, **periodograms**, **short-wave Fourier transform** and **wavelet analysis**. This diversity of terms and the similar circumstances in which they are applied makes understanding the similarities and differences of different approaches challenging, precluding assessment of the relative merits of alternative approaches in different ecological contexts. At the same time, among the relatively few examples of their application in the ecological literature, many are implemented using specialised software or commercial libraries [@Shepard_et_al_2006; @Scott_et_al_2016], such as MATLAB®, rather than open-source alternatives that have been growing in popularity among ecologists, such as `R` [@Lai_et_al_2019; @R_Core_Team_2020]. 
+
+An important concept which transcends different approaches is **Heisenberg's uncertainty principle** [@Gabor_1946]. In the context of signal processing, this principle recognises a trade-off between our ability to infer location in time (i.e., when a periodic behaviour occurs) and location in frequency (i.e., the frequency of a periodic behaviour). In practice, this means that different approaches for the decomposition of a timeseries into a series of component frequencies tend to fall along a spectrum between approaches with high frequency resolution (i.e., the ability to discern a large number of underlying frequencies) and low time resolution (i.e., a poor ability to resolve transient frequencies or frequency timing) and low frequency resolution (i.e., the ability to discern a smaller number of frequencies) but higher time resolution (i.e., the ability to resolve transient frequencies in time more precisely). However, as it often the case in science, some approaches blur these sharp distinctions. 
+
+The aim of this review is to introduce and contextualise some of the most common approaches for inferring periodic trends in ecological timeseries. The specific objectives are as follows:  
+  1. To introduce the perspective of ecological timeseries as a series of periodic functions;  
+  2. To define and distinguish signal processing techniques and associated terminology;  
+  3. To introduce and guide their implementation and interpretation in `R`.  
+
+# Spectral analysis 
+
+While **signal processing techniques** and **spectral analysis** are often used as umbrella terms that describe any approach to decompose timeseries into its constituent frequencies and their amplitudes [@Subbey_et_al_2008], the latter is more frequently used to describe a set of non-parametric approaches in which a timeseries is decomposed into a **Fourier series**, a series of **cosine** and **sine** waves (termed **basis functions**) which oscillate at particular frequencies. A relatable way of understanding spectral analysis is to consider it as a multiple regression problem in which a response variable (e.g., the depth of an animal through time) is regressed on a series of cosine and sine predictor variables which oscillate at differing frequencies. This is termed **harmonic regression**. The result is a set of coefficient estimates, one for each cosine and sine predictor variable, which indicate the strength of the correlation between the timeseries and each corresponding frequency. While this is a useful perspective, in practice, the **discrete Fourier transform** (or more, specifically, the **fast Fourier transform** or **FFT** algorithm, which is a specific implementation of this approach) is used to determine the strength of different frequencies. 
+
+Intuitively, Fourier transform can be understood by considering the change in the centre of mass of a timeseries that is wrapped around a point in 2-dimensional space at different frequencies. Imagine a timeseries as a continuous object that can be traversed and wrapped around a central node. This process creates a flower-like structure with lobes resembling petals that extend from the origin with the peaks in the timeseries and join at the origin in the troughs between these peaks. Depending on the rate of movement along the timeseries (i.e., the 'winding frequency'), the appearance of the wound-up timeseries will differ but, in general, the centre of origin will remain relatively constant, at the centre of petals distributed throughout the timeseries' circumference. However, when the winding frequency exactly matches an underlying frequency in the timeseries, our movements up and down a peak are completed by the time we have moved half way around the central node and, for the rest of that cycle, we merely traverse the trough to the start of the next peak. Therefore, as the timeseries is wound around a central node, spikes in the centre of mass with particular winding frequencies are indicative that those same frequencies are present in the timeseries, a property captured mathematically by the Fourier transform. 
+
+The modulus of the discrete Fourier transform (i.e., the summed, squared effects of the cosine and sine functions at each frequency) is a measure of the intensity of a signal of a particular frequency that is termed the **periodogram**. In practice, raw periodograms can be difficult to interpret. One issue is that the variance of a periodogram does not decrease with data volume, instead becoming increasingly tightly packed with low intensity spikes. Furthermore, rather like sequential observations in a timeseries, adjacent peaks in a periodogram may not be independent. A related issue is that the assumption that a timeseries can be treated as a circular entity. This can be problematic for finite timeseries which may not contain a complete period of any particular frequency. In this situation, there is a discontinuity between the start and end of the timeseries which can lead to two types of estimation bias in periodogram values: **narrowband bias**, an inflation the range of frequencies that appear to be important around the expected frequency (the 'main lobe'), which constrains frequency resolution; and **broadband bias** (also termed **spectral leakage**), an inflation of the importance of 'false' frequencies ('side lobes') around the expected frequency.
+
+A number of approaches have been developed for processing raw periodograms to mitigate these issues. One set of approaches is based on averaging periodograms over time. Their method is to split a timeseries into non-overlapping segments (**Bartlett's method**) or overlapping segments (**Welch's method**) and obtain periodogram estimates for each segment which are averaged to produce a single periodogram. These approaches reduce the variance of the periodogram, at the cost of reduced frequency resolution. To dampen the effects of oscillations at the start and the end of a timeseries, **zero padding** or a **window/taper** function, such as a **Hanning window** may also applied. Often a single taper is applied (**single-taper spectral analysis**) but in **multi-taper spectral analysis**, multiple tapers are applied to reduce bias. Another approach is to average over frequencies by smoothing the periodogram, which can help to improve the independence of adjacent values (rather like a timeseries might be thinned to reduce serial autocorrelation) and facilitate interpretability. 
+
+Processed periodograms are often visualised on a plot of the strength of each frequency against frequency termed the **power spectrum**. For tapered periodograms, the power spectrum may also be termed a **single-taper** or **multi-taper** spectrum. In power spectra, the intensity (or 'energy') of a frequency in the underlying timeseries is expressed as the **power spectral density** in squared units of the variable of interest, normalised by the frequency resolution. (Normalisation ensures that the spectrum is independent of the frequency with which the process was sampled.) For example, for animal depth timeseries, sampled at any frequency, power spectral density is given in units of $m^2/Hz$. Power spectral density is proportional or equal to the variance in a response explained by a particular frequency, so that peaks in the spectrum at particular frequencies indicate particularly strong periodic trends at those frequencies in the timeseries. In `R`, these steps in spectral analysis can be implemented in sequence or with a single function, `stats::spectrum()`, which combines a split cosine bell taper and a smoothing approach to calculate periodograms. While less commonly used, this function can also implement a parametric approach to estimate the spectral density via an **autoregressive model**, but some authorities advice against this approach [@Thomson_1990]. 
+
+Spectral analysis lies at one end of the frequency -- time localisation trade-off imposed by Heisenberg's uncertainty principle. The frequency resolution is high: the number of discrete frequencies that can be distinguished is equal to half the number of timesteps, from a lowest frequency of one cycle over the entire timeseries to a highest frequency (the **Nyquist frequency**) of one cycle every two samples (i.e., a frequency of half the sampling rate). (Beyond the Nyquist frequency, higher frequency components may be indistinguishable from lower resolution frequencies with which they coincide, an issue known as **aliasing**.) Yet the time resolution is low as frequencies are inferred across the whole timeseries. One corollary of this is the assumption that the timeseries is **stationary**. This means that the statistical properties of the data-generating process (though not necessarily the statistical properties of the observed data) are constant through time. In the context of periodic trends, we can consider a stationary process as a wave whose amplitude does not change through time. 
+
+This assumption is often violated by ecological timeseries, which are often **dynamic** or **non-stationary**. In animal movement timeseries, for instance, periodic behaviours may be localised in time and even longer periods of localised behaviour may change in their intensity through time. These kinds of may be signals missed, smoothed out or conflated by spectral analyses [@Subbey_et_al_2008]. Therefore, in these circumstances, other approaches, known as **time-frequency** analyses, may be more appropriate. 
+
+# Short-time fast Fourier transform 
+
+A simple solution to the issue of non-stationarity is the manual application of spectral analysis to segments of a timeseries (i.e., **time-dependent spectral analysis**). For example, @Scott_et_al_2016 estimated daily periodograms to infer depth-specific periodic behaviours in Pacific halibut (_Hippoglossus stenolepis_) and @Shepard_et_al_2006 estimated monthly periodograms to infer changes in the tidal and diel periodicity of basking shark (_Cetorhinus maximus_) movements over longer timescales. **Short-time FFT** (abbreviated STFT and also termed **windowed FFT**) is essentially an automated implementation of this method. Under this approach, the timeseries is divided into overlapping windows of fixed size that are separated by pre-defined increments. For example, @Heerah_et_al_2017 defined overlapping windows of 7 days in duration, separated by one day increments, to examine tidal and diel periodicity in the activity of European sea bass (_Dicentrarchus labrax_). FFT is then applied to each overlapping time window. (This is not to be confused with spectral analysis that is implemented across the whole timeseries but implements a window/taper function to process the periodogram, nor FFT that is implemented to segments of a timeseries that are then averaged to produce a single spectrogram.) This approach requires stationarity within time windows but not between time windows. The result is that the frequency resolution is reduced, because only frequencies up to the length of each window can be estimated, but the time resolution is increased, with an improved ability to detect localised behaviours. The result can be visualised as a **spectrogram** in which each cell represents the intensity of a particular frequency at a particular time. In `R`, STFT can be implemented via the `e1071::stft()` or `GENEAread::stft()` functions. 
+
+Despite the intuitive appeal of this approach, STFT has been criticised on account of the _a priori_ temporal scale that is imposed on the analysis. This means that low- and high-frequency components that do not lie within the frequency range imposed by the scale parameter may be missed, smoothed or aliased, just as for FFT [@Torrence_and_Compo_1998]. As an aside, out-of-the-box routines for conducting and visualising STFT in `R` are also less well developed than for some other approaches.  
+
+# Wavelet analysis 
+
+In this context, **wavelet analysis** is another option [@Torrence_and_Compo_1998; @Cazelles_et_al_2008; @Subbey_et_al_2008; @Roesch_and_Schmidbauer_2018]. Unlike STFT, this approach does not depend on a pre-determined scale and is referred to as **scale independent** [@Torrence_and_Compo_1998], so it is particularly well-suited to the estimation of localised behaviours. This is achieved by approximating a signal as a sum of short-lived waves called wavelets. The approach begins with a so-called **mother wavelet**. There are many types of mother wavelets, but they are all oscillating functions that have high resolution over a finite time and range of frequencies (termed **compact support** or **time-frequency space localisation**). Of these, the **morlet** mother wavelet is probably the most common [@Subbey_et_al_2008]. Wavelet transformation is the process of **shifting** and **scaling** the mother wavelet with respect to a signal, such as a timeseries. Shifting refers to the movement of the wavelet across the signal, while scaling refers to the stretching of the wavelet in time to capture different frequencies. For wavelets, scale and frequency are inversely proportional and an increase in the scale of a wavelet by a factor of two increases the frequency by an octave. Thus, compressed wavelets have a 'low scale' and capture higher frequencies while stretched wavelets have a 'high scale' and capture low frequencies. Wavelet analysis, therefore, trades off frequency and time resolution at the level of wavelets, since low-frequency wavelets have high-resolution in frequency but low-resolution in time (i.e., the timing of low frequencies is determined less accurately because the width of the wavelet is wider) while high-frequency wavelets are low-resolution in frequency but high-resolution in time.
+
+There are two main types of wavelet transforms: the discrete and the continuous wavelet transform. These differ in exactly how the mother wavelet is shifted and scaled. For time-frequency analysis, the continuous wavelet transform is used. In this process, the mother wavelet is split into wavelets differing in scale, each of which is shifted along the timeseries and compared with the observed signal. The result is a large number of coefficient estimates, each of which describes the correspondence between wavelets of a particular scale (i.e., frequency) at a particular timestep. These form a time-frequency space which shows how the intensities of different frequencies change though time (i.e., a **wavelet power spectrum**). An important feature of these spectra is a region around the edges known as the **cone of influence** where the wavelet transforms are influenced by edge effects. These result from the application of Fourier transform to finite data in the wavelet transform process. In `R`, wavelet analysis can be implemented by a number of packages, including `WaveletComp` `Rwave`, `biwavelet` and `dplR`.  
+
+# Outlook
+
+Signal processing techniques are one of a suite of approaches for the analysis of ecological timeseries that are particularly effective for the estimation of periodic trends. Their strengths include their computational efficiency and the absence of covariates, whose incorporation in other approaches (e.g., generalised additive models) pre-supposes knowledge of important frequencies and which whose values may not be known accurately. For animal movement studies, this is particularly relevant for data collected from any biologging tag that is not designed to determine location.
+
+To date, most ecological studies that have used signal processing techniques have tended to rely on qualitative inference. However, approaches have been developed to estimate the statistical significance of power spectra which offer new opportunities for quantitative inference moving forward. In essence, these approaches assume a background spectra against which the observed spectra can be compared using simulation-based (Monte Carlo) methods [@Torrence_and_Compo_1998]. In `R`, these approaches are especially easy to implement for wavelet analysis via the `WaveletComp` package [@Roesch_and_Schmidbauer_2018]. 
+
+Beyond the identification of periodic trends in timeseries, there is a need to understand how the strength of particular frequencies changes through time [@Shepard_et_al_2006] and, at population levels, temporal changes in the prevalence of particular frequencies [@Scott_et_al_2016]. To understand the drivers of these trends, links between periodic trends and covariates, such as environmental timeseries, are required. In most cases, these associations have been explored graphically by overlaying estimated periodic waves with environmental timeseries [@Shepard_et_al_2006], but there are also emerging opportunities to link signal processing techniques with statistical models to infer the drivers of cyclical patterns in nature [@Heerah_et_al_2017]. Nevertheless, it is worth emphasising that these approaches to estimate the periodic components of a timeseries require regular observations in time [@Roesch_and_Schmidbauer_2018], which will limit their applicability in some ecological settings. 
+
+# Practical application
+
+## `R` prerequisites
+
+This review requires the following packages:
+
+```{r}
+library(magrittr)       # https://github.com/tidyverse/magrittr 
+library(prettyGraphics) # https://github.com/edwardlavender/prettyGraphics 
+library(Tools4ETS)      # https://github.com/edwardlavender/Tools4ETS 
+```
+
+## Foundational concepts 
+
+### Time series chararateristics
+
+Broadly defined, timeseries are observations made through time. In the analysis of ecological timeseries, it is helpful to distinguish between the structural and stochastic components of a timeseries. Structural components include **trends** (i.e., consistent, systematic changes in statistical properties, such as the mean, though time) and **periodic** behaviours (i.e., recurring patterns at particular frequencies). In contrast, the stochastic component comprises the residual variation that remains unexplained by a model for process of interest. 
+
+For the analysis of periodic behaviours, it is often useful to **centre** or **detrend** a timeseries. Centring refers to the process of enforcing a mean of zero on a response, which is achieved by the removal of its mean. Detrending usually refers to the removal of consistent systematic trends in the mean (at a particular scale). Detrended timeseries have a mean of zero which remains approximately constant through time. To achieve this, several method are used. They include differencing and removing the values predicted from a linear regression model through the data, which are exemplified here:  
+
+```{r, fig.cap = "Observations and 'detrended' observations determined by differencing and a linear regression model. In each figure, the blue line is the mean. Notice that detrending also centres the data."}
+# Define plotting window
+pp <- par(mfrow = c(1, 3))
+
+# Simulate and visualise some observations 
+by <- 0.05
+x <- seq(0, 15, by = by)
+y <- 100 + 5*x - 30*x^2 + rnorm(length(x), 0, 1000)
+pretty_plot(x, y, xlab = "x", ylab = "y", main = "A (raw obs)")
+abline(h = mean(y), col = "blue")
+
+# Detrend observations using differencing 
+ydt1 <- Tools4ETS::serial_difference(y)
+
+# Detrend observations using a linear model
+m1 <- lm(y ~ x)
+# lines(x, predict(m1))
+ydt2 <- y - predict(m1)
+
+# Visualise detrended observations 
+pretty_plot(x, ydt1, xlab = "x", ylab = "y", main = "B (detrended obs I)")
+abline(h = mean(ydt1, na.rm = TRUE), col = "blue")
+pretty_plot(x, ydt2, xlab = "x", ylab = "y", main = "B (detrended obs II)")
+abline(h = mean(ydt2), col = "blue")
+par(pp)
+```
+
+In this example, differencing has worked quite well, but detrending via linear regression has left a parabolic pattern in the data. In these cases, a more flexible detrending approach may be employed. For example, some approaches favour local polynomial regression (loess) smoothing prior to the analysis of periodic patterns, such as `WaveletComp` [@Roesch_and_Schmidbauer_2018]. Loess smoothing is a 'local' smoothing approach that fits a smooth function through observations. For each observation, the fitted value is a weighted average of nearby points whose influence depends on their distance (in this case, in time) from that observation according to a decaying function. The degree of smoothing depends on the size of the neighbourhood which is controlled by a `span` parameter. This takes a value between 0 and 1 and specifies the proportion of observations in each neighbourhood. As an example, imagine we have 100 observations spaced 1 minute apart. A span of 0.1 includes 10% of observations around each observation (i.e., a 10-minute window) while a span of 0.5 includes 50 % of all observations around each observation (i.e., a 50-minute window). The larger the span, the smoother the fitted curve. This type of model can be fitted using the `stats::loess()` function. To demonstrate loess smoothing, let's simulate some observations and fit loess smoothers with increasing values for the span parameter (i.e., the degree of smoothing): 
+
+```{r, fig.cap = "Loess smoothers with different spans."}
+# Define plotting window
+pp <- par(mfrow = c(2, 5), oma = c(3, 3, 3, 3), mar = c(2, 2, 2, 2))
+
+# Plot y ~ x and add a fitted line for different spans
+spans <- seq(by, 1-by, length.out = 10)
+lapply(1:length(spans), function(i){
+   p <- spans[i]
+   pretty_plot(x, y, 
+               main = paste(LETTERS[i], "(span = ", p, ")"),
+               col = scales::alpha("dimgrey", 0.5))
+   mod <- loess(y ~ x, span = p)
+   fit <- predict(mod)
+   lines(x, fit,
+         col = "red", type = "l", lwd = 2)
+}) %>% invisible()
+mtext(side = 1, "x", outer = TRUE, line = 1)
+mtext(side = 2, "y", outer = TRUE, line = 2)
+par(pp)
+```
+
+To detrend the timeseries, we would minus these smooth functions from our observations, as we will see in our exploration of wavelet analysis. One limitation of this approach is that the degree of smoothing and the flexibility of the polynomial functions that are used to do the smoothing (see the `degree` argument in `R`) are not estimated from the data. Furthermore, for large ecological timeseries, loess smoothing can be slow. In these situation, generalised additive models (e.g., implemented via `mgcv::bam()`) may be more suitable for detrending timeseries prior to signal processing. 
+
+### Wave characteristics
+
+Periodic signals can be visualised as waves, with peaks and troughs through time. Before we consider how to decompose a timeseries into these waves, it is helpful to clarify the terminology used to describe waves. There are three main parameters that concern us here: 
+
+* amplitude ($A$), the height of the wave;
+* period ($T$), the duration between sequential waves;
+* frequency ($f$), the number of waves per unit time (i.e, $f = \frac{1}{T}$);
+
+As an example, consider a wave with period 10 seconds. By definition, this means that there is one wave every 10 seconds or 1/10 waves per second (Hz). To visualise the waves with different parameters, consider the following general equation for a sine wave:
+
+\begin{equation}
+a sin(bx + c) + d
+\end{equation}
+
+where $a$ is the amplitude of the wave; $b$ is related to the period via $b = \frac{2\pi}{period}$; $c$ is a horizontal shift parameter; and $d$ is vertical shift parameter. Let's simulate some waves with different parameters to explore their effects: 
+
+```{r, fig.cap = "Example sinusoid waves differing in frequency."}
+# Define plotting window 
+pp <- par(mfrow = c(1, 3))
+# Simulate some x values
+x <- seq(0, 10, by = 0.01)
+# Visualise a wave with period = 2 pi, frequency = 0.159 waves per unit time
+pretty_plot(x, sin(x), 
+            type = "l", xlab = "x", ylab = "sin(x)", main = "A")
+# Visualise a wave with period = 10, frequency = 0.1 waves per unit time
+pretty_plot(x, sin(((2*pi)/10)*x), 
+            type = "l", xlab = "x", ylab = "sin(x)", main = "B")
+# Visualise a wave with period = 0.5, frequency = 2 waves per unit time 
+pretty_plot(x, sin(((2*pi)/0.5)*x), 
+            type = "l", xlab = "x", ylab = "sin(x)", main = "C")
+par(pp)
+```
+
+For future simulations, it will help to have a dedicated function to simulate and plot sinusoidal waves with different parameters:
+
+```{r, fig.cap = "A cosine function with a period of 5 units."}
+Tools4ETS::sim_sinusoid(x = seq(0, 10, by = 0.01), 
+                        f = cos, 
+                        period = 5, 
+                        xlab = "x", ylab = "cos(x)")
+```
+
+## Spectral analysis 
+
+### Conceptualising timeseries as waves
+
+We have noted that spectral analysis is a set of approaches for decomposing a timeseries into its constituent periodic frequencies or waves. To provide some visual intuition for this perspective, let's simulate some simple waves with different amplitudes and frequencies. We can imagine these are the 'constituent' waves underlying a timeseries. As we combine their effects, we will see that we can start to create quite a complex timeseries from these simple constituent. In spectral analysis, we are running this process in reverse, starting with the intuition that our timeseries can be decomposed, at least in part, into a series of constituent waves, and going backwards from this point to infer their frequencies.  
+
+```{r, fig.cap = "Simple periodic waves can combine to create complex waveforms."}
+# Set plotting window 
+pp <- par(mfrow = c(4, 1), oma = c(2, 2, 2, 2), mar = c(4, 4, 2, 2))
+# Simulate some simple waves 
+x  <- seq(0, 20, length.out = 1000)
+y1 <- Tools4ETS::sim_sinusoid(x, a = 4, period = 2, return = TRUE, 
+                              ylab = "y1", main = "A")
+y2 <- Tools4ETS::sim_sinusoid(x, a = 8, period = 3, return = TRUE, 
+                              ylab = "y2", main = "B")
+y3 <- Tools4ETS::sim_sinusoid(x, a = 5, period = 0.5, return = TRUE, 
+                              ylab = "y3", main = "C")
+# Visualise the combined effects of these simple waves
+y  <- y1 + y2 + y3
+pretty_plot(x, y, type = "l", xlab = "x", ylab = "y1 + y2 + y3", main = "D")
+par(pp)
+```
+
+### Harmonic regression 
+
+One familiar way of thinking about the implementation of spectral analysis to identify these constituent frequencies is as a multiple regression problem in which the response, measured at $n$ time points, is regressed on $n-1$ sine and cosine predictor functions oscillating different discrete frequencies [@Wearing_2010]. For a timeseries, $y_t$, comprising an even number of observations of length $n$, we can write such a model as follows: 
+
+\begin{equation}
+y_t = a_0 + \sum_{k = 1}^{\frac{n}{2}-1} \left[a_k cos \left(\frac{2 \pi kt}{n}\right) + b_k sin\left(\frac{2 \pi kt}{n} \right) \right] + a_{\frac{n}{2}} cos(\pi t)
+\end{equation}
+
+where $t$ refers to timestamps from $1,...n$; $a_0$ is the model intercept (i.e., the mean of the timeseries); and $a_k$ and $b_k$ are the regression coefficients for cosine and sine waves of frequency $k$ (i.e., a measure of the correlation between $y_t$ and each predictor oscillating at frequency $k$). This approach is also called **harmonic regression** and the resultant regression model is a **finite Fourier series** for a discrete timeseries [@Wearing_2010]. 
+
+In this model, notice that we have one parameter for the intercept and $n - 1$ coefficients for the sine and cosine functions. In other words, we have a parameter for every observation and no remaining degrees of freedom. Therefore, by necessity, we are constrained to evaluate the discrete frequencies from the lowest possible frequency of $k = 1$ cycle (or $2 \pi$ radians) over the timeseries (termed the 'record length') or, equivalently, $\frac{2 \pi}{n}$ per sampling interval; to a highest possible frequency (termed the Nyquist frequency) of 1/2 a cycle ($\pi$ radians) per sampling interval [@Wearing_2010]. Thus, the lowest frequency that can be detected depends on the record length and the highest frequency that can be detected is twice the sampling interval [@Wearing_2010]. 
+
+An example will help to make this clear. Let's break down these equations for a simple example with just four timesteps (i.e., $n = 4$): 
+
+\begin{equation}
+\begin{aligned}
+y_t &= a_0 + \sum_{k = 1}^{\frac{4}{2}-1} \left[a_k cos \left(\frac{2 \pi k t}{4}\right) + b_k sin\left(\frac{2 \pi k t}{4} \right) \right] + a_{\frac{4}{2}} cos(\pi t) \\
+&= a_0 + a_1 cos \left(\frac{2 \pi \times 1 \times t}{4}\right) + b_1 sin \left(\frac{2 \pi \times 1 \times t}{4} \right) + a_{2} cos(\pi t) \\
+&= a_0 + a_1 cos \left(\frac{2 \pi t}{4}\right) + b_1 sin \left(\frac{2 \pi t}{4} \right) + a_{2} cos(\pi t) \\
+y_1 &= a_0 + a_1 cos \left(\frac{\pi}{2}\right) + b_1 sin \left(\frac{\pi}{2} \right) + a_{2} cos(\pi) \\
+y_2 &= a_0 + a_1 cos(\pi) + b_1 sin(\pi) + a_{2} cos(\pi) \\
+y_3 &= a_0 + a_1 cos \left(\frac{3\pi}{2}\right) + b_1 sin \left(\frac{3\pi}{2} \right) + a_{2} cos(\pi) \\
+y_4 &= a_0 + a_1 cos(2 \pi) + b_1 sin(2 \pi)  + a_{2} cos(\pi) \\
+\end{aligned}
+\end{equation}
+
+### (Fast) Fourier transform 
+
+In practice, we use another approach called Fourier transform (or, more specifically, a fast implementation of this algorithm called fast Fourier transform or FFT) to infer the underlying frequencies. FFT can be implemented in `R` using the `stats::fft()` function. However, in general, as we shall see below, we will find it easier to use the `stats::spectrum()` function which implements `stats::fft()` and then converts the outputs into a format that can be visualised. 
+
+### The periodogram
+
+A periodogram is a measure of the contributions of each frequency $k$ to a time series, quantified as follows:
+
+\begin{equation}
+P_k = a_k^2 + b_k^2 
+\end{equation}
+
+where $a_k$ and $b_k$ are the coefficients for each frequency $k = 1,...,k = \frac{n}{2}$. A plot of periodogram values ($P$) against $k$ is termed the **Fourier line** or **power spectrum**. Often, $a_0$ may dominate this plot, so in practice it is useful to centre the response first, which `R` might do automatically (see below). Peaks in this spectrum at particular frequencies correspond to the strength of that frequency in the timeseries.  
+
+Consider a simple example in which we have three periodic processes with frequencies over 3, 4 and 6 years respectively: 
+```{r, fig.cap = "A simulated timeseries driven by three periodic processes with peaks every 3, 4 and 6 years."}
+# Example source: http://web.stanford.edu/class/earthsys214/notes/series.html 
+# Define a sequence of timesteps (240)
+x <- 1:240
+
+# Simulate 240 observations that represent the sum of a three periodic processes 
+# ... operating every (1) 3 years, (2) 4 years and (3) 6 years. In the simulation, 
+# ... the periodic components at these frequencies will be progressively stronger. 
+y1 <- rep(c(1,0,0),80)
+y2 <- rep(c(0,0,0,2),60)
+y3 <- rep(c(0,0,0,0,0,3),40)
+y <- y1+y2+y3
+
+# Visualise
+pretty_plot(x, y, type = "h", xlab = "Time (years)", ylab = "Value (y)")
+```
+
+In `R`, we can obtain the raw periodogram using `TSA::periodogram()`, `stats::spgram()` or, most commonly, by using the wrapper function, `stats::spectrum()`. By default, `stats::spectrum()` automatically de-trends and centres the response before creating the periodogram. We can implement this function using the default options to create an initial periodogram as follows:
+
+```{r, fig.cap = "A raw peridogram of simulated yearly observations."}
+spectrum(y)
+```
+
+### Periodogram processing 
+
+#### Tapering 
+
+The raw periodogram values often require some processing to facilitate interpretation. We previously commented that one assumption of the approach that we have just implemented is that we can treat a timeseries as a circular entity which can be decomposed into a series of sinusoids of infinite length. For finite timeseries, a consequence of this assumption is that any discontinuity between the start and the end of the timeseries can propagate through the periodogram and induce bias. 
+
+To use finite data via FFT to generate a periodogram, we thus need to combine the power spectrum with a **window** or **taper** function that dampens the effects of oscillations beyond the range of our data. For example, we could apply a rectangular window function with a value of 1 within the range of our data and a value of 0 outside. More commonly, we use a smooth function which gradually decreases (tapers) to 0 towards the limits of our data. There are different types of taper functions. Tapering is implemented via `stats::spectrum()` via a split cosine bell taper (see `?spec.taper`). Let's examine taper functions with different parameters and their influence on the periodogram created above: 
+
+```{r, fig.cap = "The effect of a taper function on a periodogram."}
+# Define plotting window
+pp <- par(mfcol = c(2, 4))
+# Visualise tapers with different values for p, 
+# ... the proportion of observations to be tapered at each end of the timeseries,
+# ... and their effects on spectra
+lapply(1:4, function(i){
+  p <- c(0, 0.1, 0.25, 0.5)[i]
+  pretty_plot(x, spec.taper(x, p), 
+              type = "l", 
+              main = paste0(LETTERS[i], "(I) taper with p = ", p)
+              )
+  spectrum(y, 
+           taper = p, 
+           main = paste0(LETTERS[i], "(II) raw spectrum with p = ", p))
+}) %>% invisible()
+par(pp)
+```
+
+#### Smoothing 
+
+We often also smooth raw periodograms using moving averages. This is for two main reasons. First, for large timeseries, periodograms become packed with a tighter collection of spikes which can make their interpretation more difficult: 
+```{r, fig.cap = "Raw periodograms (i.e., pre-smoothing) for a simulated process comprising different numbers of observations."}
+# Define plotting window
+pp <- par(mfrow = c(2, 2))
+# Generate periodograms for different numbers of observations
+# ... but the same data generating process. 
+lapply(1:4, function(i){
+  n <- c(2, 5, 10, 15)[i]
+  ytmp <- rep(y, n)
+  spectrum(ytmp, 
+           log = "yes",
+           main = paste0(LETTERS[i], " (n = ", n, ")"))
+}) %>% invisible()
+par(pp)
+```
+
+Second, rather like sequential observations in a timeseries, adjacent peaks in a spectrogram are not necessarily independent (they are only asymptotically independent). In the same way that thinning can improve the independence of a timeseries, smoothing a periodogram can improve the independence of discrete frequencies as well as interpretability. In `R`, smoothing can be implemented via `spans` or `kernel` argument to `spectrum()`:
+
+```{r, fig.cap = "The effect of smoothing on peridograms."}
+pp <- par(mfrow = c(1, 2))
+spectrum(rep(y, 5), 
+         span = c(3, 5), 
+         main = "A [span = c(3, 5)]")
+spectrum(rep(y, 5), 
+         kernel = kernel("modified.daniell", 1), 
+         main = "B [kernel('modified.daniell', 1)]")
+par(pp)
+```
+
+To guide the degree of smoothing, @Simpson_2013 suggests that a useful rule of thumb for observations up to 1000 is to use a smoothing span that is $\sqrt(2n)$. Often, a trial and error approach may be useful. An alternative smoothing approach is to generate a power spectrum for segments of the timeseries which are then averaged.
+
+#### Scaling 
+
+It is often desirable to scale the spectral density (by multiplying by 2) so that the area under the periodogram equals the variance. 
+
+```{r, fig.cap = "A periodogram with scaled spectal densities."}
+spec <- spectrum(y, taper = 0.1, span = c(3, 5), plot = FALSE)
+spec$spec_scale <- spec$spec ^2
+pretty_plot(spec$freq, log(spec$spec_scale), 
+            type = "l", 
+            xlab = "Frequency", ylab = "log(Scaled spectral density)")
+```
+
+The other change that can help sometimes is turning off the default option of logging the y-axis: 
+```{r, fig.cap = "A periodogram with unlogged spectral densities."}
+spectrum(y, log = "no")
+```
+
+#### Re-expressing frequencies
+
+Finally, note that in the plot produced by `stats::spectrum()`, the x-axis is number of cycles per sampling interval. Usually, it is more intuitive to convert this into the number of cycles per unit time by dividing by the sampling interval. In this case, since sampling interval is every year (i.e., sampling interval = 1), it is not necessary to do this. However, for completeness, let's re-create the plot with frequency expressed per unit time: 
+
+```{r, fig.cap = "A periodogram with frequencies expressed per unit time."}
+sampling_interval <- 1 
+spec$freq_per_unit_time<- spec$freq/sampling_interval
+pretty_plot(spec$freq_per_unit_time, spec$spec, 
+            xlab = "Frequency (years)", 
+            ylab = "Spectral density",
+            type = "l")
+```
+Here, frequencies of approximately 0.16, 0.25 and 0.33 per year appear to be important in the underlying timeseries. We can pull out the exact frequencies as follows:
+
+```{r}
+# Define helper function to identify peaks between two values
+search <- function(x, x1, x2, y){
+  d <- data.frame(x = x, y = y)
+  d <- d[d$x > x1 & d$x < x2, ]
+  d <- d[which.max(d$y), ]
+  return(d)
+}
+
+# Identify frequencies with spectral peaks 
+f1 <- spec$freq[which.max(spec$spec[spec$freq < 0.2])]
+f2 <- search(x = spec$freq, x1 = 0.2, x2 = 0.3, y = spec$spec)$x
+f3 <- search(x = spec$freq, x1 = 0.3, x2 = 0.4, y = spec$spec)$x
+
+# Print frequencies 
+f1; f2; f3;
+```
+
+Since frequency is the number off cycles per unit time, this implies we have cycles with a period (T = $1/f$ ) of 1/0.16 (2 years), 1/0.25 (4 years) and 1/0.33 (6 years), corresponding the simulated truth:
+
+```{r}
+1/f1; 1/f2; 1/f3
+```
+
+### Worked examples of spectral analysis
+
+#### Deterministic example
+
+In this example, we simulate a wave with a period of 10 s (i.e., a wave with successive peaks spaced 10 s apart, a frequency of 0.1 waves per second). We use `stats::spectrum()` to visualise the raw spectrum and then we implement the steps described above (i.e., centre the observations, include a taper function, smooth the periodogram, scale the periodogram and re-express frequencies per unit time). As we have seen, some of these stages are implemented by `stats::spectrum()` by default, but we express them all explicitly here for transparency.
+
+```{r, fig.cap = "Periodograms for a simulated sine wave with a period of 10 seconds."}
+## Define plotting window
+mat <- matrix(c(1, 2, 3, 4, 5, 5), ncol = 2)
+layout(mat)
+
+## Define wave parameters 
+period <- 10                # 10 time units between waves
+freq   <- 1/period          # number of waves per one time unit 
+x <- seq(0, 20, by = 0.1)   # x values, with a sampling interval of 0.1 
+
+## Define and visualise wave 
+xk <- sin(2*pi*freq*x)
+plot(x, xk, type = "l", main = "A (simulated timeseries)")
+
+## Visualise 'raw' spectrum 
+spec <- spectrum(xk, 
+                 detrend = FALSE,
+                 span = NULL, 
+                 taper = 0, 
+                 log = "no", 
+                 main = "B (raw periodogram)")
+
+## Centre observations
+spec <- spectrum(xk, 
+                 detrend = TRUE,
+                 span = NULL, 
+                 taper = 0, 
+                 log = "no", 
+                 main = "C (raw periodogram with centred obs)")
+
+## Taper and smooth spectrum 
+spec <- spectrum(xk, 
+                 detrend = TRUE,
+                 taper = 0.1, 
+                 kernel = kernel("modified.daniell", 1), 
+                 log = "no", 
+                 main = "D (tapered and smoothed periodogram)")
+
+## Re-define x and y axes 
+# default x axis is the number of cycles per sampling interval (0.1 here)
+# it's more intuitive to convert this into the number of cycles per unit time
+# ... dividing by the sampling interval (0.1 here)
+# We should also multiply the spectral density by 2 so that 
+# ... the area under the periodogram equals the variance
+x_spec <- spec$freq/0.1
+y_spec <- spec$spec * 2
+plot(x_spec, y_spec, 
+     type = "l",
+     xlab = "Frequency [number of waves per unit time (e.g., per sec)]", 
+     ylab = "Scaled spectral density", 
+     main = "E (processed periodogram)")
+
+## Examine inferred frequencies 
+# So we have about 0.1 waves per unit time; specifically: 
+x_spec[which.max(y_spec)]
+# which translates into a period of one wave every ~ 10 s
+1/x_spec[which.max(y_spec)]
+```
+
+#### Ecologically orientated example
+
+Now let's turn our attention to an ecologically orientated example. Let's imagine we have sampled the depth of an animal every 2 minutes using an archival tag over a number of days. We'll set the average depth of the animal as 200 m and imagine that it oscillates around this depth over a diel cycle, with movement into shallower water at night, give or take a bit of error. 
+
+```{r, fig.cap = "Depth observations simulated from a sinusoidal process with a period of 24 hours (1440 minutes)."}
+## Define a sequence of timestamps at which we'll simulate observations 
+t <- seq.POSIXt(as.POSIXct("2016-01-01"), as.POSIXct("2016-01-25"), by = "2 mins")
+lubridate::tz(t) <- "UTC"
+dat <- data.frame(index = 1:length(t), timestamp = t)
+dat$timestamp_mins <- seq(0, length.out = nrow(dat), by = 2)
+head(dat, 3)
+
+## Simulate depths 
+# We'll imagine that animal depth oscillates around a mean depth of 200 m
+# ... depth peaks (i.e., is shallowest) at midnight every night 
+# ... and is minimised (i.e., greatest) at midday every day.
+# ... i.e., the period is 24 hours (or 1440 minutes). 
+# ... observed depths are then the sum of this periodic effect 
+# ... plus some randomly distributed error 
+alpha <- 200
+dat$p1 <- 50 * cos(((2*pi)/(24*60))*dat$timestamp_mins)
+dat$depth_mu1 <- alpha + dat$p1
+dat$depth_obs1 <- dat$depth_mu1 + rnorm(nrow(dat), 0, 10)
+
+## Visualise depths
+dat$depth_mu1_neg  <- dat$depth_mu1*-1
+dat$depth_obs1_neg <- dat$depth_obs1*-1
+pretty_plot(dat$timestamp[1:1000], dat$depth_obs1_neg[1:1000], 
+            pretty_axis_args = list(side = 3:2),
+            type = "l", 
+            xlab = "Time (hours)", 
+            ylab = "Depth (m)")
+lines(dat$timestamp, dat$depth_mu1_neg, type = "l", col = "blue", lwd =2 )
+```
+
+We have simulated depth observations with frequency of approximately 0.04 cycles per 24 hours or 0.0007 cycles per minute (a period of 24 hours or 1400 minutes). Now, let us imagine that we have observed these data and proceed to investigate periodic trends in these timeseries. It would be advisable to begin with some graphical exploration. For example, we could visualise the within and between day variation in depth as follows: 
+
+```{r, fig.cap = "Simulated depth timeseries visusalised as a 2-dimensional time plot."}
+pp <- par(oma = c(2, 2, 2, 2))
+pretty_ts_mat(dat$timestamp, dat$depth_obs1_neg, res = 2)
+mtext(side = 4, text = "Depth (m)", line = 6)
+par(pp)
+```
+
+This shows that depth is clearly shallower during the day than at night. Further exploration is warranted here but, for demonstration purposes, we cut-to-the-chase and implement some spectral analyses following the protocol defined above:
+
+```{r, fig.cap = "Peridograms for simulated depth timeseries."}
+## Define plotting window 
+pp <- par(mfrow = c(2, 4))
+
+## Visualise raw spectrogram 
+spec_depth <- spectrum(dat$depth_obs1, 
+                       spans = NULL, 
+                       taper = 0, 
+                       demean = FALSE, detrend = TRUE, 
+                       log = "yes", 
+                       col = "blue",
+                       main = "A (raw spectrogram)")
+
+## Step 1) Centre response and zoom into x axis 
+spec_depth <- spectrum(dat$depth_obs1, 
+                       spans = NULL, 
+                       taper = 0, 
+                       demean = TRUE, detrend = TRUE, 
+                       log = "yes", 
+                       col = "blue",
+                       xlim = c(0, 0.01), 
+                       main = "B (+ centring and zoom)")
+
+## Step 2) Implement taper
+# Notice how the side lobes contract but the main lobe widens:
+spec_depth <- spectrum(dat$depth_obs1, 
+                       spans = NULL, 
+                       taper = 0.5, 
+                       demean = TRUE, detrend = TRUE, 
+                       log = "yes", 
+                       col = "blue",
+                       xlim = c(0, 0.01), 
+                       main = "C (+ taper)")
+
+## Step 3) Implement smoothing
+spec_depth <- spectrum(dat$depth_obs1, 
+                       spans = c(3, 5), 
+                       taper = 0.1, 
+                       demean = TRUE, detrend = TRUE, 
+                       col = "blue",
+                       log = "yes", 
+                       xlim = c(0, 0.01), 
+                       main = "D (+ smoothing (I))")
+spec_depth <- spectrum(dat$depth_obs1, 
+                       kernel = kernel("daniell", 2), 
+                       taper = 0.1, 
+                       detrend = TRUE, demean = TRUE, 
+                       log = "yes", 
+                       col = "blue",
+                       xlim = c(0, 0.01), 
+                       main = "E (+ smoothing (II))")
+
+## Step 4) Re-express frequencies per unit time
+# Convert frequencies to per minute and then into hours 
+# Note that we need to divide by the sampling frequency but multiply by 60 
+# ... because the frequency of waves per hour is much higher than per minute.
+spec_depth$freq_per_unit_time <- (spec_depth$freq/2)*60 
+pretty_plot(spec_depth$freq_per_unit_time, log(spec_depth$spec), 
+            pretty_axis_args = list(lim = list(c(0, 0.5), NULL)),
+            type = "l", 
+            col = "blue", 
+            xlab = "Frequency (hours)", 
+            ylab = "log(spectral density)",
+            main = "F (+ re-express f (I))")
+# Convert frequencies to periods (hours between successive cycles)
+spec_depth$period <- 1/spec_depth$freq_per_unit_time
+pretty_plot(spec_depth$period, log(spec_depth$spec), 
+     pretty_axis_args = list(lim = list(xlim = c(0, 100), NULL)),
+     type = "l" , 
+     col = "blue", 
+     xlab = "Period (hours)",
+     ylab = "log(spectral density)",
+     main = "G (+ re-express f (II))")
+
+## Step 5) Scale the spectral density so that the area under the periodogram
+# ... equals the variance of the timeseries. In this case, this is not particularly 
+# ... useful because we have to log the spectral power and limit the y axis
+# ... to facilitate interpretation anyway, but for demonstration purposes:
+spec_depth$spec_scale <- log(spec_depth$spec * 2)
+pretty_plot(spec_depth$freq_per_unit_time, spec_depth$spec_scale, 
+            pretty_axis_args = list(lim = list(xlim = c(0, 0.5), NULL)),
+            type = "l" , 
+            col = "blue", 
+            xlab = "Frequency (hours)",
+            ylab = "log(spectral density)",
+            main = "H (+ scale spectral density)")
+par(pp)
+
+## Compare simulated frequency per unit time and corresponding period
+# ... in hours:
+spec_depth$freq_per_unit_time[which.max(spec_depth$spec)]
+spec_depth$period[which.max(spec_depth$spec)]
+```
+
+Implementing these stages in sequence is pretty clunky, so in the future we could use the `prettyGraphics::pretty_pgram()` function here instead. While centring, tapering and smoothing can all be implemented directly via `stats::spectrum()`, the key benefit of this function is that we can also easily re-scale the x and y axes to facilitate interpretation: 
+
+```{r, fig.cap = "`prettyGraphics` periodograms for simulated depth timeseries."}
+# Set plotting window 
+pp <- par(mfrow = c(1, 2))
+# Visualise frequency in hours 
+pretty_pgram(spec_depth, 
+             sampling_interval = 2, 
+             scale = TRUE,
+             log = TRUE,
+             x_units = function(x) x*60, 
+             plot_args = list(pretty_axis_args = list(lim = list(c(0, 0.5), NULL)), 
+                              xlab = "Frequency (hours)", 
+                              ylab = "Spectral density", 
+                              main = "A")
+             )
+# Visualise period in hours
+pretty_pgram(spec_depth, 
+             sampling_interval = 2, 
+             scale = TRUE,
+             log = TRUE,
+             x_units = function(x) x*60, 
+             x_type = "T", 
+             plot_args = list(pretty_axis_args = list(lim = list(c(0, 100), NULL)), 
+                              xlab = "Frequency (hours)", 
+                              ylab = "Spectral density", 
+                              main = "B")
+             )
+par(pp)
+```
+### $AR(\rho)$ estimation
+
+The autocorrelation function (ACF) can also tell us about periodicity. In this case, if we calculate the ACF at different lags, we should expect to see a reversal in the sign of autocorrelation after exactly 6 hours, when our simulated animal swaps from moving shallower to moving deeper: 
+
+```{r, fig.cap = "The ACF for simulated depth timeseries."}
+pp <- par(mfrow = c(1, 2))
+acf(dat$depth_obs1, lag = nrow(dat), main = "A (complete ACF)")
+acf_out <- acf(dat$depth_obs1, lag = 200, main = "B (zoomed in ACF)")
+which.min(abs(acf_out$acf))
+par(pp)
+```
+
+In an extension of this intuitive concept, an $AR(\rho)$ model can also be used to obtain an estimate of the power spectrum. The autoregressive order is estimated via `stats::ar()` using the Akaike information criterion (AIC). This approach tends to give a very smooth estimate of the spectrum as $\rho$ becomes large, as apparent for this example. However, some authorities do not recommend this approach [@Thomson_1990]. 
+
+```{r, fig.cap = "The AR spectra for simulated depth timeseries."}
+spec_depth_ar <- spectrum(dat$depth_obs1, method = "ar", xlim = c(0, 0.1))
+```
+
+### Assumptions
+
+Spectral analysis is a high-frequency resolution but low-time resolution approach, with frequencies  inferred across the whole timeseries. For this to be appropriate, the assumption is that the timeseries is **stationary**; i.e., a process whose data-generating properties remain constant through time. To examine the importance of stationarity, let's simulate a non-stationary timeseries and evaluate the performance of spectral analysis. To do this, we'll adjust the depth timeseries that we simulated above to include a time-localised pattern of high frequency movement: 
+
+```{r, fig.cap = "A non-stationary simulated depth timeseries."}
+## Simulate depth timeseries with localised periodic behaviour 
+# Update simulated depths to include a localised section
+# ... of high frequencies:
+start <- 1000
+end <- 1500
+dat$p2 <- 10 * c(rep(0, start - 1), 
+                  cos(((2*pi)/(4*60))*dat$timestamp_mins[start:end]), 
+                  rep(0, nrow(dat)-end)
+                  )
+dat$depth_mu2  <- alpha + dat$p1 + dat$p2
+dat$depth_obs2 <- dat$depth_mu2 + rnorm(nrow(dat), 0, 10)
+
+## Visualise timeseries, highlighting section with high frequency movement in blue:
+dat$depth_mu2_neg  <- dat$depth_mu2*-1
+dat$depth_obs2_neg <- dat$depth_obs2*-1
+pretty_plot(dat$timestamp[1:2000], dat$depth_obs2_neg[1:2000], 
+            pretty_axis_args = list(side = 3:2),
+            type = "l")
+add_lines(x = dat$timestamp, 
+          y1 = dat$depth_mu2_neg, 
+          y2 = as.integer(factor((dat$p2 != 0))), 
+          lwd = 2, 
+          output = 2)
+```
+
+Following the workflow that we laid out previously, our next step is to visualise the timeseries. Here, we plot another 2-dimensional time plot. It is very difficult to discern the high frequency behaviour that we simulated:
+
+```{r, fig.cap = "A 2-dimensional time plot for a non-stationary depth timeseries."}
+pretty_ts_mat(dat$timestamp, dat$depth_obs2_neg, res = 2)
+```
+
+Now, let's now examine what happens if we implement standard spectral analysis:
+
+```{r, fig.cap = "Periodograms for a non-stationary timeseries."}
+## Plotting window
+pp <- par(mfrow = c(1, 3))
+## Standard spectrum
+spectrum(dat$depth_obs2_neg, 
+         kernel = kernel("modified.daniell", 1), 
+         main = "A (initial, spectrum)"
+         )
+## Processed spectrum
+pretty_pgram(dat$depth_obs2_neg, 
+             sampling_interval = 2, 
+             scale = TRUE, 
+             log = TRUE, 
+             kernel = kernel("modified.daniell", 1), 
+             x_units = function(x) x*60,
+             x_type = "T", 
+             plot_args = list(pretty_axis_args = list(lim = list(c(0, 50), NULL)), 
+                              xlab = "Period (hours)", 
+                              ylab = "log(scaled spectral density)", 
+                              main = "B (processed spectrum)")
+              )
+
+## Focus on an example 7-day period 
+pretty_pgram(dat$depth_obs2_neg[1:((60*24*7)/2)], 
+             sampling_interval = 2, 
+             scale = TRUE, 
+             log = TRUE, 
+             kernel = kernel("modified.daniell", 1), 
+             x_units = function(x) x*60,
+             x_type = "T", 
+             plot_args = list(pretty_axis_args = list(lim = list(c(0, 50), NULL)), 
+                              xlab = "Period (hours)", 
+                              ylab = "log(scaled spectral density)", 
+                              main = "C (spectrum for week = 1)")
+)
+# We can see some evidence for a smaller peak around 4 hours, as simulated, 
+# ... but this is not particularly clear. 
+par(pp)
+```
+In the periodograms across the whole timeseries, the model effectively estimates the diel periodicity that we built in, but the shorter, localised period of periodicity is less well resolved. For a periodogram that focuses on the first week of data, it is slightly clearer that there seems to be a higher frequency pattern in the timeseries which is weaker than the diel periodicity but, without the luxury of simulated data, we might not have known to isolate the first week of data. In this case, one option might be to compute the periodogram for many such windows, an approach automated by the short-time Fourier transform methodology. 
+
+## Short-time Fourier transform (STFT)
+
+Short-time Fourier transform divides a timeseries into a series of overlapping windows which are slid across the timeseries and in each one of which the periodogram is computed. Here, we will implement this approach for our simulated depth timeseries using the `e1071` package and closely following @Heerah_et_al_2017. The first step is to convert the depth timeseries into a timeseries object in `R`:
+
+```{r}
+# Centre depth observations 
+dat$depth_obs2_centred <- dat$depth_obs2 - mean(dat$depth_obs2)
+# Convert depth to a timeseries
+# ... with observations once per 120 seconds 
+dat_ts <- ts(dat$depth_obs2, 
+             start = as.numeric(min(dat$timestamp)), 
+             end = as.numeric(max(dat$timestamp)), 
+             frequency = 1/120)
+head(dat_ts)
+```
+
+Next, we define parameters required by the STFT approach:
+
+* window width, the width of the windows in 'index' units (i.e., the number of rows) over which to compute the FFT; 
+* increment, the size of the increment by which to shift the window along the timeseries in 'index' units; 
+* the number of coefficients, the number of coefficients that are to be estimated; 
+
+```{r}
+# Define window width: 7 day window = 10080 minutes = 5040 2-min timestamps 
+win <- 60/2*24*7
+# Define window incrementation: 1 day intervals = 1440 minutes = 720 2-min timestamps
+inc <- 60/2*24
+# Define the number of coefficients as half the window size (n/2)
+n_coef <- floor(win/2)
+```
+
+We can now proceed to implement the STFT algorithm: 
+
+```{r}
+# Implement algorithm 
+stft_depth <- e1071::stft(X = dat_ts, 
+                          win = win, 
+                          inc = inc, 
+                          coef = n_coef, 
+                          wtype = "hanning.window")
+
+# Extract estimated values for visualisation
+str(stft_depth)
+stft_depth_mat <- stft_depth$values
+stft_depth_mat_log <- log10(stft_depth_mat)
+# We have a matrix with 1:18 rows (one for each time window)
+# ... and 1:2520 (one for each frequency). 
+str(stft_depth_mat_log)
+```
+
+There is a `plot` method in `e1071` but this does not produce very intuitive plots. Therefore, to visualise these data, some data wrangling is required:
+
+```{r, fig.cap = "A spectrogram of a non-stationary depth timeseries estimated by STFT."}
+#### Define plotting param for a custom plot
+
+## (1) Define timestamps for the x axis 
+# A sequence of timestamps spaced 1 day apart (our increment) and 18 units long is appropriate 
+# ... since we have 18 complete 7 day windows in our analysis 
+x_timestamp <- seq(min(dat$timestamp), by = "1 days", length.out = dim(stft_depth_mat_log)[1])
+
+## (2) Define the frequencies/periods for the y axis 
+# We can detect frequencies from the Nyquist frequency (one cycle per 2 * 120 s)
+# ... to one cycle over each time block (one week = 7 days = 168 hours, 7*24*60*60 s)
+# Define frequency bandwidths in seconds given sampling every 120 s ...
+# ... and that we specified n/2 coefficients
+x_f1 <- seq(1/(7*24*60*60), 1/(2*120), length.out = n_coef)
+# An alternative approach to calculate these frequencies in Heerah et al (2017) is:
+sample_rate <- 1/(2*120)
+x_f2 <- 1:(n_coef)*sample_rate/n_coef
+# all.equal(x_f1, x_f2)
+# Convert frequencies to periods in hours for labelling purposes
+x_period <- (1/x_f1)/(60*60)
+# It is worth pointing our that frequencies are evenly spaced and increasing, 
+# ... while periods are not evenly spaced and decreasing. This means we end
+# ... up with more small periods and relatively few large ones. This affects 
+# ... plot creation below. 
+# plot(f1); plot(periods)
+# Link y axis coords and labels
+yax <- data.frame(index = 1:length(x_period),
+                  x_f = x_f1, 
+                  x_period = x_period)
+```
+
+We can now proceed to visualise a customised spectrogram as in @Heerah_et_al_2017: 
+
+```{r}
+#### Produce customised plot
+
+## Define plotting window 
+pp <- par(oma = c(2, 2, 2, 2))
+
+## Define plot using image()
+# ... specify increasing, regularly spaced x values (timestamps) and 
+# ... y values (frequencies) (not periods which are irregularly spaced).
+# ... For the y axis limits, we will ignore any frequencies < 1/(2*60*60) (i.e. 1 hour)
+# ... because, since periods are not evenly spaced, this 'squashes' all of the larger
+# ... periods of biological interest (e.g., diel patterns) up against one end of the 
+# ... plot which is difficult to interpret
+image(x_timestamp, x_f1, stft_depth_mat_log, 
+      axes = FALSE,
+      ylim = c(0, 1/(2*60*60)), xlim = range(dat$timestamp),
+      xlab = "Date", ylab = "Period (hours)", 
+      col = fields::tim.colors(64))
+
+## Add x axis 
+axis.POSIXct(side = 1, 
+             x = dat$timestamp, 
+             at = seq(min(dat$timestamp), max(dat$timestamp),by = "day"), 
+             format="%d-%m", 
+             pos = 0
+             )
+## Add y axis:
+# ... choose a set of sensible periods 
+# ... positions are specified by frequencies
+# ... and we will add the corresponding periods at those frequencies
+# ... note the as.character() in the matching process to avoid 
+# ... small numerical differences causing failure. 
+yat <- c(168, 24, 12, 8, 6, 5, 4, 3, 2)
+axis(side = 2,
+     at = yax$x_f[as.character(yax$x_period) %in% yat],
+     labels = yax$x_period[as.character(yax$x_period) %in% yat],
+     las = TRUE,
+     pos = min(dat$timestamp))
+
+## Add a legend
+fields::image.plot(legend.only = TRUE,
+                   col = fields::tim.colors(64), 
+                   zlim = range(stft_depth_mat_log),
+                   legend.lab = expression("Variance density (log " * m^2 * "/Hz)"))
+par(pp)
+```
+
+This analysis reveals the diel periodicity that we simulated across the whole timeseries. There is also weak evidence for the 4-hour periodicity that we simulated during the first week. However, the estimated strength of this periodicity is probably dampened by inference across 7-day periods, which are not truly stationary in our analysis. In this context, wavelet analysis might provide a better representation of these data in time-frequency space. 
+
+## Wavelet analysis
+
+### Implementation 
+
+While Fourier transform approximates a signal in terms of a infinitely extending sum of sine and cosine functions, in wavelet transformation, we approximate a signal using a sum of 'short-lived' waves called wavelets, scaled versions of which are shifted across the timeseries to estimate the correspondence between different scales (frequencies) and our timeseries through time. This makes wavelet analysis particularly well-suited to the identification of localised behaviours, so we should be able to identify both the short-lived high frequency periodicity we simulated as well as the diel cycle. So, let's proceed to analyse our non-stationary timeseries using wavelet transformation, via the `WaveletComp` package [@Roesch_and_Schmidbauer_2018], for which we can rely on comprehensive documentation. For computational speed, in this analysis, we will focus on a subset of the simulated data:
+
+```{r}
+# Define dataframe with response in first column and a 'date' column
+dat_wv <- data.frame(depth_obs2_centred = dat$depth_obs2_centred, 
+                     date = dat$timestamp)
+# Focus on a sample of the timeseries for speed
+index_sample <- 1:5000
+dat_wv <- dat_wv[index_sample, ]
+```
+
+In `WaveletComp`, wavelet transformation is implemented via the `analyze.wavelet()` function. A couple of comments about some of the arguments to this function are worthwhile: 
+
+* `my.data` A dataframe to be analysed. This should contain a column for the observations. It is helpful to include a column named `date` with timestamps. The column to be analysed is defined via the `my.series` argument. 
+* `loess.span` A number between 0 and 1 which controls the degree of smoothing via `stats::loess()`. This can implemented internally within the function prior to wavelet transformation to detrend a timeseries. 
+* `dt` A number which defines the sampling resolution. For example, here, with observations every 2-minutes, `dt = 2`. This means we have 1/2 observations per time unit (i.e., per minute). For ecological timeseries, it is often helpful to re-express dt in terms of hours. For example, with 2-minute timesteps, we have a sampling resolution of `dt = 2/60` (0.033) hours between successive observations. 
+* `lowerPeriod`, `upperPeriod` and `dj` control the lower and upper period, and the resolution with which frequencies are resolved between these values. The default options may often be appropriate here. In addition, the periods that are presented on wavelet power spectra can be controlled in a downstream plotting function (see below). 
+* `make.pval`, `n.sim` and `method` control the computation of p-values for the wavelet power spectrum. For speed in these examples, we will not implement these options. 
+
+```{r}
+## Implement wavelets analysis in minutes 
+wavelet_depth_mins <- 
+   WaveletComp::analyze.wavelet(my.data = dat_wv, 
+                                my.series = "depth_obs2_centred",
+                                loess.span = 0,
+                                dt = 2, dj = 1/250, 
+                                make.pval = FALSE, 
+                                verbose = FALSE)
+## Implement wavelet analysis in hours 
+wavelet_depth_hrs <- 
+   WaveletComp::analyze.wavelet(my.data = dat_wv, 
+                                my.series = "depth_obs2_centred",
+                                loess.span = 0,
+                                dt = 2/60, dj = 1/250, 
+                                make.pval = FALSE, 
+                                verbose = FALSE)
+
+## Implement wavelet analysis around selected periods
+wavelet_depth_hrs_24 <- 
+   WaveletComp::analyze.wavelet(my.data = dat_wv, 
+                                my.series = "depth_obs2_centred",
+                                loess.span = 0,
+                                dt = 2/60, dj = 1/250, 
+                                lowerPeriod = 20, upperPeriod = 28,
+                                make.pval = FALSE, 
+                                verbose = FALSE)
+```
+
+### Visualisation
+
+The `WaveletComp::wt.image()` provides flexible visualisation capabilities: 
+
+```{r, fig.cap = "Visualisation of wavelet power spectra via `WaveletComp::wt.image()`."}
+## Visualise wavelet power spectrum in minutes:
+WaveletComp::wt.image(wavelet_depth_mins, 
+                      color.key = "quantile", 
+                      n.levels = 250, 
+                      periodlab = "Period (minutes)",
+                      legend.params = list(lab = "wavelet power levels", label.digits = 3, ar = 4.7), 
+                      main = "A (power specta w/ periods in minutes)")
+
+## Visualise wavelet power spectrum in hours
+WaveletComp::wt.image(wavelet_depth_hrs, 
+                      color.key = "quantile", 
+                      n.levels = 250, 
+                      periodlab = "Period (hours)",
+                      legend.params = list(lab = "wavelet power levels", label.digits = 3, ar = 4.7), 
+                      main = "B (power spectra w/ periods in hours)")
+
+## Visualise wavelet power spectrum in hours with intuitive x axis units 
+WaveletComp::wt.image(wavelet_depth_hrs, 
+                      color.key = "quantile", 
+                      n.levels = 250, 
+                      periodlab = "Period (hours)",
+                      show.date = TRUE, date.format = "%d-%m",
+                      legend.params = list(lab = "wavelet power levels", label.digits = 3, ar = 4.7), 
+                      main = "C (power spectra with timestamps)")
+
+## Visualise wavelet power spectrum around periods of interest
+spec.period.axis <- list(at = c(20:28))
+WaveletComp::wt.image(wavelet_depth_hrs_24, 
+                      color.key = "quantile", 
+                      n.levels = 250, 
+                      periodlab = "Period (hours)",
+                      spec.period.axis = spec.period.axis,
+                      show.date = TRUE, date.format = "%d-%m",
+                      legend.params = list(lab = "wavelet power levels", label.digits = 3, ar = 4.7), 
+                      main = "D (power spectra around specific periodicities)")
+```
+
+In these figures, the wavelet power is shown for each period (on the y-axis and shown on a logarithmic scale) against time. The colours correspond to the wavelet power (i.e., the relative intensity) of signals with different periods through time. The black lines mark 'ridges' in the spectrum. Contour lines can also be added to indicate statistical significance, while the white shading indicates the **cone of influence** around the edge of the power spectrum in which coefficients are influenced by edge effects. We can see that this approach has effectively estimated both the short-lived 4-hour and the prolonged 24-hour periodicity. 
+
+### Average power
+
+Wavelet power spectra can also be summarised by calculating the average power of each period through time:
+
+```{r, fig.cap = "Wavelet power averages across time for simulated depth timeseries."}
+# Define the maximum level of power averages to be considered
+# ... We need to increase these by 1.001 because the reported value may not match R's internal accuracy
+maximum_level <- 1.001*max(wavelet_depth_hrs$Power.avg, wavelet_depth_hrs$Power.avg) 
+WaveletComp::wt.avg(wavelet_depth_hrs, 
+                    maximum.level = maximum_level, 
+                    verbose = FALSE)
+```
+
+### Reconstruction 
+
+`WaveletComp::reconstruct()` provides a convenient tool to compare observed and timeseries reconstructed from specific periods of those whose average power (across the timeseries) is significant:
+
+```{r, fig.cap = "A comparison of simulated and reconstructed timeseries."}
+# Plotting window
+pp <- par(mfrow = c(2, 2))
+
+# Compare observed and reconstructed timeseries overall 
+WaveletComp::reconstruct(wavelet_depth_hrs, 
+                         plot.waves = FALSE, 
+                         legend.coords = "bottomleft", 
+                         lwd = c(2, 0.5), 
+                         col = c("black", "red"), 
+                         main = "A (overall)", 
+                         verbose = FALSE)
+
+# Compare observed and reconstructed timeseries for a period of four hours
+# (... a period that we know is important)
+WaveletComp::reconstruct(wavelet_depth_hrs, 
+                         sel.period = 4,
+                         plot.waves = FALSE, 
+                         legend.coords = "bottomleft", 
+                         lwd = c(1, 3), 
+                         col = c("lightgrey", "red"), 
+                         main = "B (period = 4 hours)", 
+                         verbose = FALSE)
+
+# Compare observed and reconstructed timeseries for a period of 24 hours
+# (... a period that we know is important)
+WaveletComp::reconstruct(wavelet_depth_hrs, 
+                         sel.period = 24,
+                         plot.waves = FALSE, 
+                         legend.coords = "bottomleft", 
+                         lwd = c(1, 3), 
+                         col = c("lightgrey", "red"), 
+                         main = "C (period = 24 hours)", 
+                         verbose = FALSE)
+
+# Compare observed and reconstructed timeseries for a period of four hours
+# (... a period that is not directly important)
+WaveletComp::reconstruct(wavelet_depth_hrs, 
+                         sel.period = 168,
+                         plot.waves = FALSE, 
+                         legend.coords = "bottomleft", 
+                         lwd = c(1, 3), 
+                         col = c("lightgrey", "red"), 
+                         main = "D (period = 168 hours [7 days])", 
+                         verbose = FALSE)
+par(pp)
+```
+
+### De-trending
+
+We have seen how centring or detrending a timeseries can help facilitate inference. In the `WaveletComp` package, loess smoothing can be implemented to detrend the timeseries. To illustrate how this is implemented and the consequences of detrending, let's update our simulated depth timeseries to include a negative trend in depth through time. 
+
+```{r, fig.cap = "A depth timeseries with a linear trend and two cyclic components."}
+# Simulate non-stationary timeseries with a linear trend
+dat$depth_obs3 <- 0.0001*dat$index * dat$depth_obs2
+dat$depth_obs3_centred <- dat$depth_obs3 - mean(dat$depth_obs3)
+dat$depth_obs3_neg <- dat$depth_obs3*-1
+dat_wv_depth_obs3 <- dat[index_sample, ]
+# Visualise trend 
+pretty_plot(dat_wv_depth_obs3$timestamp, dat_wv_depth_obs3$depth_obs3_neg[1:5000], 
+            pretty_axis_args = list(side = 3:2),
+            xlab = "Time", ylab = "Depth (m)",
+            type = "l")
+# Add a couple of illustrative smoothers to the timeseries
+lines(loess.smooth(dat_wv_depth_obs3$timestamp, dat_wv_depth_obs3$depth_obs3_neg, span = 0.01), 
+      col = "green", type = "l", lwd = 2)
+lines(loess.smooth(dat_wv_depth_obs3$timestamp, dat_wv_depth_obs3$depth_obs3_neg, span = 0.75), 
+      col = "red", type = "l", lwd = 2)
+```
+
+Now, let's proceed to implement wavelet transformation without and with a loess smoother:
+
+```{r}
+# wavelet transformation without smoother 
+dat_wv_depth_obs3_to_fit <- data.frame(depth_obs3_centred = dat_wv_depth_obs3$depth_obs3_centred, 
+                                       date = dat_wv_depth_obs3$timestamp)
+wavelet_depth_obs3_hrs_trend <- 
+   WaveletComp::analyze.wavelet(my.data = dat_wv_depth_obs3_to_fit, 
+                                loess.span = 0,
+                                dt = 2/60, 
+                                make.pval = FALSE, 
+                      verbose = FALSE)
+# wavelet transformation with smoother 
+wavelet_depth_obs3_hrs_detrend <- 
+   WaveletComp::analyze.wavelet(my.data = dat_wv_depth_obs3_to_fit, 
+                                loess.span = 0.75,
+                                dt = 2/60, 
+                                make.pval = FALSE, 
+                      verbose = FALSE)
+```
+
+In the latter case, the inputted timeseries is first detrended by fitting a smooth function through the observations to identify the trend (returned in the `$series$variable.name.trend` element of the output) and this smoothed timeseries (returned in the `$series$variable.name` element of the output) is passed through the wavelet transformation. Without smoothing, the  `$series$variable.name` element of the output is simply the inputted data. We can see this clearly if we compare the observations used in fitting without and with smoothing: 
+
+```{r, fig.cap = "Demonstration of the effect of the `loess.span` argument in `WaveletComp`."}
+# Plotting window
+pp <- par(mfrow = c(2, 2))
+
+# Observations used in wavelet transformation without smoothing 
+pretty_plot(dat_wv_depth_obs3_to_fit$date, 
+            wavelet_depth_obs3_hrs_trend$series$depth_obs3_centred,
+            pretty_axis_args = list(side = 3:2),
+            xlab = "Time", ylab = "Depth (m)",
+            type = "l", 
+            main = "A (obs w/o detending)")
+
+# Observations used in wavelet transformation with smoothing 
+pretty_plot(dat_wv_depth_obs3_to_fit$date, 
+            wavelet_depth_obs3_hrs_detrend$series$depth_obs3_centred, 
+            pretty_axis_args = list(side = 3:2),
+            xlab = "Time", ylab = "Depth (m)",
+            type = "l", 
+            main = "B (obs w/ detrending)")
+# Derived from minusing smooth function in .trend object from observations
+lines(dat_wv_depth_obs3_to_fit$date, 
+      dat_wv_depth_obs3_to_fit$depth_obs3_centred - wavelet_depth_obs3_hrs_detrend$series$depth_obs3_centred.trend, 
+      col = "red", lwd = 0.5, lty = 3)
+
+# We can recreate this manually beforehand:
+# Visualise observations 
+pretty_plot(dat_wv_depth_obs3_to_fit$date, 
+            dat_wv_depth_obs3_to_fit$depth_obs3_centred, 
+            pretty_axis_args = list(side = 3:2),
+            xlab = "Time", ylab = "Depth (m)",
+            type = "l", 
+            main = "C (detrending functions)")
+# Plot smooth used by WaveletComp
+lines(dat_wv_depth_obs3_to_fit$date, 
+      wavelet_depth_obs3_hrs_detrend$series$depth_obs3_centred.trend, 
+      col = "red", lwd = 3)
+# Add manually computed smooth from loess 
+dat_wv_depth_obs3_to_fit$index <- 1:nrow(dat_wv_depth_obs3_to_fit)
+loess_smooth <- loess(depth_obs3_centred ~ index, span = 0.75, data = dat_wv_depth_obs3_to_fit)
+lines(dat_wv_depth_obs3_to_fit$date, predict(loess_smooth), col = "blue", lwd = 3, lty = 3)
+par(pp)
+```
+
+Now that it is clear how loess is implemented by `WaveletComp`, let's compare inferences from the initial and detrended timeseries:
+
+```{r, fig.cap = "A comparison of wavelet power spectra from a timeseries with a trend verus a detrended timeseries."}
+# Visualise the estimates without detrending 
+WaveletComp::wt.image(wavelet_depth_obs3_hrs_trend, 
+                      color.key = "quantile", 
+                      n.levels = 250, 
+                      legend.params = list(lab = "wavelet power levels", mar = 4.7), 
+                      main = "A (trend)", 
+                      verbose = FALSE)
+
+# Visualise the estimates with detrending
+WaveletComp::wt.image(wavelet_depth_obs3_hrs_detrend, 
+                      color.key = "quantile", 
+                      n.levels = 250, 
+                      legend.params = list(lab = "wavelet power levels", mar = 4.7),
+                      main = "B (detrended)", 
+                      verbose = FALSE)
+```
+
+In this case, the results are similar but removing the long-term trend helps to clarify patterns. 
+
+### Extensions 
+
+The wavelet analyses that we have implemented here can be extended:
+
+* Confidence intervals and statistical significance can be calculated using different methods.
+* Bivariate timeseries can be analysed to examine whether they are in-phase (i.e., their peaks and troughs match through time), out-of-phase (i.e., their peaks and troughs mismatch) or anti-phase (thee pattern of peaks and troughs is exactly opposite) via `WaveletComp::analyze.coherency()`. The result can be visualised via `wc.image()` as a cross-wavelet power spectrum or wavelet coherence spectrum of both variables. Phase differences can be explored further via `wc.sel.phases()` and `wc.phasediff.image()`.
+
+# Useful links
+
+* These are useful resources which cover a range of the techniques presented here: 
+    - Jones (2018) Time Series and Spectral Analysis. http://web.stanford.edu/class/earthsys214/notes/series.html
+    - Simpson (2012) Time Series Analysis. https://fromthebottomoftheheap.net/assets/materials/courses/2013/mcmaster/time-series.pdf 
+    - Simpson (2013) Time Series Analysis. https://fromthebottomoftheheap.net/assets/materials/courses/2013/mcmaster/time-series-prac.pdf 
+    - Wearing (2010) Spectral Analysis in R. https://ms.mcmaster.ca/~bolker/eeid/2010/Ecology/Spectral.pdf 
+    - Spectral Analysis of Time Series. https://rstudio-pubs-static.s3.amazonaws.com/9428_1197bd003ebd43c49b429f22ea4f36e5.html
+
+* This is a useful resource dedicated to Fourier transform:
+    - But what is the Fourier Transform? A visual introduction. https://www.youtube.com/watch?v=spUNpyF58BY
+
+* These are useful resources dedicated to wavelet transform:
+    - Easy Introduction to Wavelets. https://www.youtube.com/watch?v=ZnmvUCtUAEE
+    - Rösch and Schmidbauer (2018). WaveletComp 1.1: A guided tour through the R package. http://www.hs-stat.com/projects/WaveletComp/WaveletComp_guided_tour.pdf 
+
+# References
+
+
+

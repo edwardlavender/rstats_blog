@@ -2,8 +2,8 @@
 
 ## Introduction
 
-This repository contains the raw .Rmd files and .html outputs for a series of blog posts about ecologically orientated statistical modelling in R. These are published on XXXX. 
+This repository contains the raw .Rmd files and .html outputs for a series of blog posts about ecologically orientated statistical modelling in R. 
 
 ## Contents
 
-1. Peaking behind the linear model. 
+1. An introduction to signal processing techniques for the estimation of periodic trends in ecological timeseries.
